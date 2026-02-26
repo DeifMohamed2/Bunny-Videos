@@ -220,7 +220,8 @@ router.post('/clear-cancelled', (req, res) => {
     });
 });
 
-// Proxy endpoint for Bunny HLS/MP4 with AccessKey header
+// Advanced proxy endpoint for Bunny HLS/MP4 with AccessKey header and playlist rewriting
+const urlLib = require('url');
 router.get('/proxy', async (req, res) => {
     const url = req.query.url;
     const apiKey = req.query.apiKey || req.headers['x-bunny-apikey'] || req.get('x-bunny-apikey');
@@ -230,16 +231,36 @@ router.get('/proxy', async (req, res) => {
     try {
         const headers = {};
         if (apiKey) headers['AccessKey'] = apiKey;
-        // Stream remote file to response
-        const response = await axios({
-            method: 'GET',
-            url,
-            headers,
-            responseType: 'stream',
-            timeout: 60000
-        });
-        res.set(response.headers);
-        response.data.pipe(res);
+        // If playlist (.m3u8), rewrite segment URLs to go through proxy
+        if (url.endsWith('.m3u8')) {
+            const response = await axios.get(url, { headers, timeout: 30000 });
+            let playlist = response.data;
+            // Rewrite all segment URLs (lines not starting with #)
+            const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+            playlist = playlist.split('\n').map(line => {
+                line = line.trim();
+                if (!line || line.startsWith('#')) return line;
+                // Absolute URL? Proxy as is. Relative? Make absolute then proxy.
+                let absUrl = line;
+                if (!/^https?:\/\//.test(line)) absUrl = baseUrl + line;
+                // Re-proxy
+                const proxied = `/api/download/proxy?url=${encodeURIComponent(absUrl)}${apiKey ? `&apiKey=${encodeURIComponent(apiKey)}` : ''}`;
+                return proxied;
+            }).join('\n');
+            res.set('Content-Type', 'application/vnd.apple.mpegurl');
+            return res.send(playlist);
+        } else {
+            // For segments or MP4, just stream with header
+            const response = await axios({
+                method: 'GET',
+                url,
+                headers,
+                responseType: 'stream',
+                timeout: 60000
+            });
+            res.set(response.headers);
+            response.data.pipe(res);
+        }
     } catch (err) {
         res.status(502).send('Proxy error: ' + (err.response?.status || err.message));
     }
