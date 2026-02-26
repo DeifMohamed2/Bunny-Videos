@@ -136,24 +136,49 @@ class DownloadService {
             headers['AccessKey'] = this.apiKey;
         }
 
-        // Method 1: Try MP4 fallback URL first (fastest, most compatible)
-        if (quality.mp4FallbackUrl) {
+        // Use dynamic port for proxy URL
+        const port = process.env.PORT || 3000;
+        const makeProxyUrl = (targetUrl) => `http://127.0.0.1:${port}/api/download/proxy?url=${encodeURIComponent(targetUrl)}${this.apiKey ? `&apiKey=${encodeURIComponent(this.apiKey)}` : ''}`;
+
+        // Helper to check if MP4 fallback exists
+        const checkMp4Exists = async (url) => {
             try {
-                console.log('Trying MP4 fallback: ' + quality.mp4FallbackUrl);
-                const result = await this.downloadDirectMP4(quality.mp4FallbackUrl, outputPath, onProgress, signal, headers);
-                if (result.success) {
-                    return result;
+                await axios.head(url, { headers, timeout: 10000 });
+                return true;
+            } catch {
+                return false;
+            }
+        };
+
+        // Try MP4 fallback(s) in order: 1080p, 720p, original
+        if (quality.mp4FallbackUrl) {
+            const mp4Urls = [quality.mp4FallbackUrl];
+            if (quality.height !== 720) {
+                mp4Urls.push(quality.baseUrl + '/' + quality.videoId + '/play_720p.mp4');
+            }
+            mp4Urls.push(quality.originalUrl);
+            for (const mp4Url of mp4Urls) {
+                if (await checkMp4Exists(mp4Url)) {
+                    try {
+                        console.log('Trying MP4 fallback: ' + mp4Url);
+                        const result = await this.downloadDirectMP4(mp4Url, outputPath, onProgress, signal, headers);
+                        if (result.success) {
+                            return result;
+                        }
+                    } catch (error) {
+                        console.log('MP4 fallback failed: ' + error.message + ', trying next...');
+                    }
                 }
-            } catch (error) {
-                console.log('MP4 fallback failed: ' + error.message + ', trying HLS...');
             }
         }
 
-        // Method 2: Use ffmpeg to download HLS stream (most reliable)
-        // Use proxy endpoint to add AccessKey header for Bunny HLS/MP4
-        const hlsUrl = quality.url;
-        const proxyUrl = `/api/download/proxy?url=${encodeURIComponent(hlsUrl)}${this.apiKey ? `&apiKey=${encodeURIComponent(this.apiKey)}` : ''}`;
-        const localProxyUrl = `http://localhost:3000${proxyUrl}`;
+        // Always use root playlist for HLS
+        let hlsUrl = quality.url;
+        const baseInfo = this.extractBaseInfo(hlsUrl);
+        if (baseInfo) {
+            hlsUrl = `${baseInfo.baseUrl}/${baseInfo.videoId}/playlist.m3u8`;
+        }
+        const localProxyUrl = makeProxyUrl(hlsUrl);
         console.log('Downloading via HLS/ffmpeg (proxy): ' + localProxyUrl + ' (Quality: ' + quality.resolution + ')');
         return await this.downloadViaFFmpeg(localProxyUrl, outputPath, onProgress, signal);
     }
@@ -244,22 +269,20 @@ class DownloadService {
                 });
             }
 
-            // Build ffmpeg arguments with optimizations for faster startup
+            // Build ffmpeg arguments for server-safe execution
             const args = [
-                '-y',                          // Overwrite output
-                '-analyzeduration', '1000000', // Reduce analysis time (1 second)
-                '-probesize', '1000000',       // Reduce probe size (1MB)
-                '-i', playlistUrl,             // Input HLS URL directly
-                '-c', 'copy',                  // Copy codecs (no re-encoding, fast!)
-                '-bsf:a', 'aac_adtstoasc',    // Fix audio for MP4 container
-                '-movflags', '+faststart',     // Enable fast start for web
+                '-loglevel', 'info',
+                '-y',
+                '-protocol_whitelist', 'file,http,https,tcp,tls,crypto',
+                '-i', playlistUrl,
+                '-c', 'copy',
+                '-movflags', '+faststart',
                 outputPath
             ];
 
             console.log('Running: ffmpeg ' + args.join(' '));
 
             const ffmpeg = spawn(ffmpegPath, args);
-
             let stderr = '';
 
             ffmpeg.stderr.on('data', (data) => {
@@ -290,9 +313,6 @@ class DownloadService {
                     lastBytes = parseInt(sizeMatch[1]) * 1024;
                 }
 
-                // Parse speed
-                const speedMatch = output.match(/speed=\s*([\d.]+)x/);
-                
                 if (onProgress) {
                     const progress = duration > 0 ? Math.min((currentTime / duration) * 100, 99.9) : 0;
                     const elapsedTime = (Date.now() - startTime) / 1000;
@@ -313,7 +333,7 @@ class DownloadService {
                 }
             });
 
-            ffmpeg.on('close', (code) => {
+            ffmpeg.on('close', (code, signal) => {
                 if (code === 0) {
                     if (fs.existsSync(outputPath)) {
                         const stats = fs.statSync(outputPath);
@@ -329,9 +349,10 @@ class DownloadService {
                         reject(new Error('FFmpeg completed but output file not found'));
                     }
                 } else {
-                    console.error('FFmpeg failed with code ' + code);
+                    const failMsg = signal ? `FFmpeg exited by signal: ${signal}` : `FFmpeg exited with code ${code}`;
+                    console.error(failMsg);
                     console.error('FFmpeg stderr:', stderr.slice(-1000));
-                    reject(new Error('FFmpeg exited with code ' + code));
+                    reject(new Error(failMsg));
                 }
             });
 

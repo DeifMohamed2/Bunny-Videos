@@ -231,6 +231,10 @@ router.get('/proxy', async (req, res) => {
     try {
         const headers = {};
         if (apiKey) headers['AccessKey'] = apiKey;
+        // Forward range and user-agent headers for segment/MP4 requests
+        if (req.headers['range']) headers['Range'] = req.headers['range'];
+        if (req.headers['user-agent']) headers['User-Agent'] = req.headers['user-agent'];
+
         // If playlist (.m3u8), rewrite segment URLs to go through proxy
         if (url.endsWith('.m3u8')) {
             const response = await axios.get(url, { headers, timeout: 30000 });
@@ -250,15 +254,22 @@ router.get('/proxy', async (req, res) => {
             res.set('Content-Type', 'application/vnd.apple.mpegurl');
             return res.send(playlist);
         } else {
-            // For segments or MP4, just stream with header
+            // For segments or MP4, just stream with all headers and support range
             const response = await axios({
                 method: 'GET',
                 url,
                 headers,
                 responseType: 'stream',
-                timeout: 60000
+                timeout: 60000,
+                decompress: false // Don't gunzip or decompress
             });
-            res.set(response.headers);
+            // Forward all relevant headers
+            for (const [key, value] of Object.entries(response.headers)) {
+                // Don't send transfer-encoding: chunked, let Node handle it
+                if (key.toLowerCase() === 'transfer-encoding') continue;
+                res.setHeader(key, value);
+            }
+            res.status(response.status);
             response.data.pipe(res);
         }
     } catch (err) {
