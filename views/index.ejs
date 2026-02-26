@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bunny Video Downloader</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/>
+                </svg>
+                <span class="logo-text">Bunny<span class="accent">Downloader</span></span>
+            </div>
+            <div class="stats">
+                <div class="stat">
+                    <span class="stat-value" id="activeCount">0</span>
+                    <span class="stat-label">Active</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value" id="queueCount">0</span>
+                    <span class="stat-label">Queue</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value" id="completedCount">0</span>
+                    <span class="stat-label">Done</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Input Section -->
+            <section class="input-section">
+                <div class="card">
+                    <h2 class="card-title">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none">
+                            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+                        </svg>
+                        Add Videos to Download
+                    </h2>
+                    
+                    <div class="form-group">
+                        <label for="downloadPath">Download Location</label>
+                        <div class="path-input-group">
+                            <input type="text" id="downloadPath" placeholder="Select download folder..." readonly>
+                            <button type="button" id="browsePathBtn" class="btn btn-secondary btn-small">
+                                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor"/>
+                                </svg>
+                                Browse
+                            </button>
+                        </div>
+                        <small class="form-hint">Videos will be saved to this folder</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="apiKey">Bunny API Key (Required for auto title)</label>
+                        <input type="password" id="apiKey" placeholder="Enter your Bunny Stream API key" value="fb360790-cf85-455f-adb9d4c8917d-aca7-4787">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="libraryId">Library ID (Required for auto title)</label>
+                        <input type="text" id="libraryId" placeholder="Enter your Bunny Library ID (found in Stream dashboard)"  value="533780">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="videoUrls">Video URLs (one per line) - Titles fetched automatically!</label>
+                        <textarea id="videoUrls" rows="5" placeholder="https://vz-xxxxx.b-cdn.net/video-id/playlist.m3u8&#10;https://vz-xxxxx.b-cdn.net/another-video/playlist.m3u8"></textarea>
+                    </div>
+
+                    <div class="button-group">
+                        <button id="startDownloadBtn" class="btn btn-primary">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none">
+                                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+                            </svg>
+                            Start Download
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Downloads Section -->
+            <section class="downloads-section">
+                <div class="section-header">
+                    <h2>
+                        <svg class="icon" viewBox="0 0 24 24" fill="none">
+                            <path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z" fill="currentColor"/>
+                        </svg>
+                        Downloads
+                    </h2>
+                    <div class="section-actions">
+                        <button id="cancelAllBtn" class="btn btn-small btn-danger">Cancel All</button>
+                        <button id="clearCompletedBtn" class="btn btn-small btn-secondary">Clear Completed</button>
+                        <button id="clearCancelledBtn" class="btn btn-small btn-secondary">Clear Cancelled</button>
+                    </div>
+                </div>
+
+                <div id="downloadsList" class="downloads-list">
+                    <div class="empty-state">
+                        <svg class="empty-icon" viewBox="0 0 24 24" fill="none">
+                            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+                        </svg>
+                        <p>No downloads yet</p>
+                        <span>Add video URLs above to start downloading</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Toast Notifications -->
+        <div id="toastContainer" class="toast-container"></div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
