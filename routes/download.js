@@ -3,50 +3,6 @@ const router = express.Router();
 const DownloadService = require('../services/downloadService');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
-
-// Set download path (creates directory if needed)
-router.post('/set-path', (req, res) => {
-    try {
-        const { downloadPath } = req.body;
-        const queueManager = req.app.get('queueManager');
-        
-        if (!downloadPath || !downloadPath.trim()) {
-            return res.status(400).json({ success: false, error: 'No path provided' });
-        }
-
-        const normalizedPath = path.normalize(downloadPath.trim());
-
-        // Try to create directory if it doesn't exist
-        try {
-            if (!fs.existsSync(normalizedPath)) {
-                fs.mkdirSync(normalizedPath, { recursive: true });
-            }
-        } catch (mkdirError) {
-            return res.status(400).json({ success: false, error: 'Cannot create directory: ' + mkdirError.message });
-        }
-
-        // Check if path is writable
-        try {
-            const testFile = path.join(normalizedPath, '.write-test-' + Date.now());
-            fs.writeFileSync(testFile, 'test');
-            fs.unlinkSync(testFile);
-        } catch (err) {
-            return res.status(400).json({ success: false, error: 'Path is not writable' });
-        }
-
-        queueManager.setDownloadDir(normalizedPath);
-        res.json({ success: true, path: normalizedPath });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Get current download path
-router.get('/current-path', (req, res) => {
-    const queueManager = req.app.get('queueManager');
-    res.json({ success: true, path: queueManager.getDownloadDir() });
-});
 
 // Add video(s) to download queue
 router.post('/add', async (req, res) => {
@@ -54,14 +10,6 @@ router.post('/add', async (req, res) => {
         const { urls, apiKey, libraryId } = req.body;
         
         const queueManager = req.app.get('queueManager');
-        
-        // Check if download path is set
-        if (!queueManager.getDownloadDir()) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Please set a download path first' 
-            });
-        }
         
         if (!urls || !Array.isArray(urls) || urls.length === 0) {
             return res.status(400).json({ 
@@ -204,7 +152,7 @@ router.post('/retry/:jobId', (req, res) => {
     });
 });
 
-// Download completed file
+// Download completed file to browser
 router.get('/file/:jobId', (req, res) => {
     const queueManager = req.app.get('queueManager');
     const job = queueManager.getJob(req.params.jobId);
@@ -219,11 +167,36 @@ router.get('/file/:jobId', (req, res) => {
     if (!fs.existsSync(job.outputPath)) {
         return res.status(404).json({ 
             success: false, 
-            error: 'File no longer exists' 
+            error: 'File no longer exists on server' 
         });
     }
 
-    res.download(job.outputPath);
+    // Get file stats
+    const stat = fs.statSync(job.outputPath);
+    
+    // Set headers for browser download
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(job.fileName)}"`);
+    
+    // Stream the file to browser
+    const fileStream = fs.createReadStream(job.outputPath);
+    
+    fileStream.on('end', () => {
+        // Clean up temp file after successful download
+        setTimeout(() => {
+            queueManager.cleanupJobFile(req.params.jobId);
+        }, 1000);
+    });
+    
+    fileStream.on('error', (err) => {
+        console.error('Error streaming file:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, error: 'Error streaming file' });
+        }
+    });
+    
+    fileStream.pipe(res);
 });
 
 // Clear completed jobs from history

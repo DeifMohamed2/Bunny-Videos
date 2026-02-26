@@ -10,67 +10,24 @@ class QueueManager {
         this.jobs = new Map();
         this.activeDownloads = 0;
         this.maxConcurrent = 3;
-        // No default - user must set download directory
-        this.downloadDir = null;
+        // Use temp directory for processing - files will be sent to browser
+        this.tempDir = path.join(os.tmpdir(), 'bunny-downloads');
+        this.ensureTempDir();
     }
 
-    // Ensure download directory exists and is writable
-    ensureDownloadDir() {
-        if (!this.downloadDir) {
-            console.error('Download directory not set!');
-            return false;
-        }
-        
+    // Ensure temp directory exists
+    ensureTempDir() {
         try {
-            if (!fs.existsSync(this.downloadDir)) {
-                fs.mkdirSync(this.downloadDir, { recursive: true });
-                console.log('Created download directory:', this.downloadDir);
+            if (!fs.existsSync(this.tempDir)) {
+                fs.mkdirSync(this.tempDir, { recursive: true });
             }
-            // Test write access
-            const testFile = path.join(this.downloadDir, '.write-test-' + Date.now());
-            fs.writeFileSync(testFile, 'test');
-            fs.unlinkSync(testFile);
-            console.log('Download directory ready:', this.downloadDir);
+            console.log('Temp directory ready:', this.tempDir);
             return true;
         } catch (error) {
-            console.error('Download directory not writable:', this.downloadDir, error.message);
-            // Fallback to temp directory
-            this.downloadDir = os.tmpdir();
-            console.log('Falling back to temp directory:', this.downloadDir);
+            console.error('Failed to create temp directory:', error.message);
+            this.tempDir = os.tmpdir();
             return false;
         }
-    }
-
-    // Set custom download directory
-    setDownloadDir(customPath) {
-        if (!customPath) return false;
-        
-        // Normalize path for current OS
-        const normalizedPath = path.normalize(customPath);
-        
-        try {
-            // Create if doesn't exist
-            if (!fs.existsSync(normalizedPath)) {
-                fs.mkdirSync(normalizedPath, { recursive: true });
-            }
-            
-            // Test write access
-            const testFile = path.join(normalizedPath, '.write-test-' + Date.now());
-            fs.writeFileSync(testFile, 'test');
-            fs.unlinkSync(testFile);
-            
-            this.downloadDir = normalizedPath;
-            console.log('Download directory set to:', this.downloadDir);
-            return true;
-        } catch (error) {
-            console.error('Cannot use path:', normalizedPath, error.message);
-            return false;
-        }
-    }
-
-    // Get current download directory
-    getDownloadDir() {
-        return this.downloadDir;
     }
 
     // Add a new download job to the queue
@@ -143,8 +100,8 @@ class QueueManager {
             return;
         }
 
-        // Ensure download directory exists before starting
-        this.ensureDownloadDir();
+        // Ensure temp directory exists
+        this.ensureTempDir();
 
         this.activeDownloads++;
         job.status = 'downloading';
@@ -156,9 +113,10 @@ class QueueManager {
         const safeTitle = this.sanitizeFileName(job.videoTitle);
         const fileName = `${safeTitle}.mp4`;
         job.fileName = fileName;
-        job.outputPath = path.join(this.downloadDir, fileName);
+        // Save to temp directory - will be served to browser
+        job.outputPath = path.join(this.tempDir, `${job.id}_${fileName}`);
         
-        console.log('Starting download to:', job.outputPath);
+        console.log('Starting download to temp:', job.outputPath);
         
         // Emit update immediately so UI shows "Initializing"
         this.emitUpdate();
@@ -311,12 +269,13 @@ class QueueManager {
     clearCompleted() {
         for (const [jobId, job] of this.jobs.entries()) {
             if (job.status === 'completed') {
-                // Delete the file if it exists
+                // Delete the temp file if it exists
                 if (job.outputPath && fs.existsSync(job.outputPath)) {
                     try {
                         fs.unlinkSync(job.outputPath);
+                        console.log('Deleted temp file:', job.outputPath);
                     } catch (e) {
-                        console.error('Error deleting file:', e.message);
+                        console.error('Error deleting temp file:', e.message);
                     }
                 }
                 this.jobs.delete(jobId);
@@ -329,12 +288,13 @@ class QueueManager {
     clearCancelled() {
         for (const [jobId, job] of this.jobs.entries()) {
             if (job.status === 'cancelled') {
-                // Delete the file if it exists
+                // Delete the temp file if it exists
                 if (job.outputPath && fs.existsSync(job.outputPath)) {
                     try {
                         fs.unlinkSync(job.outputPath);
+                        console.log('Deleted temp file:', job.outputPath);
                     } catch (e) {
-                        console.error('Error deleting file:', e.message);
+                        console.error('Error deleting temp file:', e.message);
                     }
                 }
                 this.jobs.delete(jobId);
@@ -343,15 +303,16 @@ class QueueManager {
         this.emitUpdate();
     }
 
-    // Delete a specific job's file after browser download
-    deleteJobFile(jobId) {
+    // Delete a specific job's temp file after browser download
+    cleanupJobFile(jobId) {
         const job = this.jobs.get(jobId);
         if (job && job.outputPath && fs.existsSync(job.outputPath)) {
             try {
                 fs.unlinkSync(job.outputPath);
-                job.outputPath = null;
+                console.log('Cleaned up temp file after browser download:', job.outputPath);
+                job.fileCleanedUp = true;
             } catch (e) {
-                console.error('Error deleting file:', e.message);
+                console.error('Error cleaning up temp file:', e.message);
             }
         }
     }

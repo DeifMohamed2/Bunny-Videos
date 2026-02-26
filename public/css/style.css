@@ -162,6 +162,26 @@ body {
     color: var(--accent);
 }
 
+/* Info Banner */
+.info-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    background: var(--info-bg);
+    border: 1px solid var(--info);
+    border-radius: var(--border-radius-sm);
+    margin-bottom: 20px;
+    color: var(--info);
+    font-size: 0.9rem;
+}
+
+.info-banner .icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+}
+
 /* Form Elements */
 .form-group {
     margin-bottom: 20px;

@@ -2,7 +2,6 @@
 const socket = io();
 
 // DOM Elements
-const downloadPathInput = document.getElementById('downloadPath');
 const apiKeyInput = document.getElementById('apiKey');
 const libraryIdInput = document.getElementById('libraryId');
 const videoUrlsInput = document.getElementById('videoUrls');
@@ -20,47 +19,6 @@ const completedCount = document.getElementById('completedCount');
 
 // Track downloads that have been sent to browser
 const browserDownloadsTriggered = new Set();
-
-// Load saved path from localStorage on startup
-function loadSavedPath() {
-    const savedPath = localStorage.getItem('downloadPath');
-    if (savedPath) {
-        downloadPathInput.value = savedPath;
-    }
-}
-
-// Save path to localStorage when changed
-function savePath() {
-    const pathValue = downloadPathInput.value.trim();
-    if (pathValue) {
-        localStorage.setItem('downloadPath', pathValue);
-    }
-}
-
-// Validate and set path on server
-async function validatePath(pathValue) {
-    if (!pathValue || !pathValue.trim()) {
-        return { success: false, error: 'Please enter a download path' };
-    }
-    
-    try {
-        const response = await fetch('/api/download/set-path', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ downloadPath: pathValue.trim() })
-        });
-        return await response.json();
-    } catch (error) {
-        return { success: false, error: 'Failed to validate path: ' + error.message };
-    }
-}
-
-// Initialize on page load
-loadSavedPath();
-
-// Save path when user types
-downloadPathInput.addEventListener('blur', savePath);
-downloadPathInput.addEventListener('change', savePath);
 
 // Socket.IO event handlers
 socket.on('connect', () => {
@@ -82,7 +40,7 @@ socket.on('download-complete', (data) => {
     if (!browserDownloadsTriggered.has(data.jobId)) {
         browserDownloadsTriggered.add(data.jobId);
         triggerBrowserDownload(data.jobId, data.fileName);
-        showToast(`Download ready: ${data.fileName}`, 'success');
+        showToast(`Download ready: ${data.fileName} - Saving to your device!`, 'success');
     }
 });
 
@@ -215,17 +173,9 @@ function createDownloadItem(job) {
 
 // Start downloads
 async function startDownload() {
-    const downloadPath = downloadPathInput.value.trim();
     const urls = getVideoUrls();
     const apiKey = apiKeyInput.value.trim();
     const libraryId = libraryIdInput.value.trim();
-
-    // Validate download path first
-    if (!downloadPath) {
-        showToast('Please enter a download path', 'error');
-        downloadPathInput.focus();
-        return;
-    }
 
     if (urls.length === 0) {
         showToast('Please enter at least one video URL', 'error');
@@ -233,25 +183,6 @@ async function startDownload() {
     }
 
     startDownloadBtn.disabled = true;
-    startDownloadBtn.innerHTML = '<span class="spinner"></span> Validating path...';
-
-    // Validate path on server
-    const pathResult = await validatePath(downloadPath);
-    if (!pathResult.success) {
-        showToast(pathResult.error, 'error');
-        startDownloadBtn.disabled = false;
-        startDownloadBtn.innerHTML = `
-            <svg class="icon" viewBox="0 0 24 24" fill="none">
-                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
-            </svg>
-            Start Download
-        `;
-        return;
-    }
-    
-    // Save valid path
-    savePath();
-
     startDownloadBtn.innerHTML = '<span class="spinner"></span> Starting...';
 
     // Warn if API key or Library ID missing for title fetching
@@ -269,7 +200,7 @@ async function startDownload() {
         const data = await response.json();
 
         if (data.success) {
-            showToast(data.message, 'success');
+            showToast(data.message + ' - Files will download to your browser!', 'success');
             videoUrlsInput.value = '';
         } else {
             showToast(data.error || 'Failed to add downloads', 'error');
