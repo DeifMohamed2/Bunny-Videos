@@ -150,10 +150,12 @@ class DownloadService {
         }
 
         // Method 2: Use ffmpeg to download HLS stream (most reliable)
-        // IMPORTANT: Use quality.url (specific quality stream), NOT playlistUrl (master playlist)
+        // Use proxy endpoint to add AccessKey header for Bunny HLS/MP4
         const hlsUrl = quality.url;
-        console.log('Downloading via HLS/ffmpeg: ' + hlsUrl + ' (Quality: ' + quality.resolution + ')');
-        return await this.downloadViaFFmpeg(hlsUrl, outputPath, onProgress, signal);
+        const proxyUrl = `/api/download/proxy?url=${encodeURIComponent(hlsUrl)}${this.apiKey ? `&apiKey=${encodeURIComponent(this.apiKey)}` : ''}`;
+        const localProxyUrl = `http://localhost:3000${proxyUrl}`;
+        console.log('Downloading via HLS/ffmpeg (proxy): ' + localProxyUrl + ' (Quality: ' + quality.resolution + ')');
+        return await this.downloadViaFFmpeg(localProxyUrl, outputPath, onProgress, signal);
     }
 
     // Download direct MP4 file

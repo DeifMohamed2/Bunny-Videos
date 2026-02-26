@@ -3,6 +3,7 @@ const router = express.Router();
 const DownloadService = require('../services/downloadService');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
 
 // Add video(s) to download queue
 router.post('/add', async (req, res) => {
@@ -217,6 +218,31 @@ router.post('/clear-cancelled', (req, res) => {
         success: true,
         message: 'Cancelled jobs cleared'
     });
+});
+
+// Proxy endpoint for Bunny HLS/MP4 with AccessKey header
+router.get('/proxy', async (req, res) => {
+    const url = req.query.url;
+    const apiKey = req.query.apiKey || req.headers['x-bunny-apikey'] || req.get('x-bunny-apikey');
+    if (!url) {
+        return res.status(400).send('Missing url');
+    }
+    try {
+        const headers = {};
+        if (apiKey) headers['AccessKey'] = apiKey;
+        // Stream remote file to response
+        const response = await axios({
+            method: 'GET',
+            url,
+            headers,
+            responseType: 'stream',
+            timeout: 60000
+        });
+        res.set(response.headers);
+        response.data.pipe(res);
+    } catch (err) {
+        res.status(502).send('Proxy error: ' + (err.response?.status || err.message));
+    }
 });
 
 module.exports = router;
