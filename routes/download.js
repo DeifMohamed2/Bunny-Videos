@@ -4,38 +4,39 @@ const DownloadService = require('../services/downloadService');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { exec } = require('child_process');
 
-// Get default download path
-router.get('/default-path', (req, res) => {
-    const defaultPath = path.join(os.homedir(), 'Downloads');
-    res.json({ success: true, path: defaultPath });
-});
-
-// Set download path
+// Set download path (creates directory if needed)
 router.post('/set-path', (req, res) => {
     try {
         const { downloadPath } = req.body;
         const queueManager = req.app.get('queueManager');
         
-        if (!downloadPath) {
+        if (!downloadPath || !downloadPath.trim()) {
             return res.status(400).json({ success: false, error: 'No path provided' });
         }
 
-        // Check if path exists
-        if (!fs.existsSync(downloadPath)) {
-            return res.status(400).json({ success: false, error: 'Path does not exist' });
+        const normalizedPath = path.normalize(downloadPath.trim());
+
+        // Try to create directory if it doesn't exist
+        try {
+            if (!fs.existsSync(normalizedPath)) {
+                fs.mkdirSync(normalizedPath, { recursive: true });
+            }
+        } catch (mkdirError) {
+            return res.status(400).json({ success: false, error: 'Cannot create directory: ' + mkdirError.message });
         }
 
         // Check if path is writable
         try {
-            fs.accessSync(downloadPath, fs.constants.W_OK);
+            const testFile = path.join(normalizedPath, '.write-test-' + Date.now());
+            fs.writeFileSync(testFile, 'test');
+            fs.unlinkSync(testFile);
         } catch (err) {
             return res.status(400).json({ success: false, error: 'Path is not writable' });
         }
 
-        queueManager.setDownloadDir(downloadPath);
-        res.json({ success: true, path: downloadPath });
+        queueManager.setDownloadDir(normalizedPath);
+        res.json({ success: true, path: normalizedPath });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -47,45 +48,20 @@ router.get('/current-path', (req, res) => {
     res.json({ success: true, path: queueManager.getDownloadDir() });
 });
 
-// Open folder picker dialog (macOS/Windows/Linux support)
-router.get('/browse-folder', async (req, res) => {
-    try {
-        const platform = process.platform;
-        let command;
-        
-        if (platform === 'darwin') {
-            // macOS - use osascript
-            command = `osascript -e 'POSIX path of (choose folder with prompt "Select Download Location")'`;
-        } else if (platform === 'win32') {
-            // Windows - use PowerShell
-            command = `powershell -command "Add-Type -AssemblyName System.Windows.Forms; $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog; $folderBrowser.Description = 'Select Download Location'; $folderBrowser.ShowDialog() | Out-Null; $folderBrowser.SelectedPath"`;
-        } else {
-            // Linux - use zenity
-            command = `zenity --file-selection --directory --title="Select Download Location" 2>/dev/null`;
-        }
-
-        exec(command, (error, stdout, stderr) => {
-            if (error) {
-                // User cancelled or error
-                return res.json({ success: false, cancelled: true });
-            }
-            
-            const selectedPath = stdout.trim();
-            if (selectedPath && fs.existsSync(selectedPath)) {
-                res.json({ success: true, path: selectedPath });
-            } else {
-                res.json({ success: false, cancelled: true });
-            }
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
 // Add video(s) to download queue
 router.post('/add', async (req, res) => {
     try {
         const { urls, apiKey, libraryId } = req.body;
+        
+        const queueManager = req.app.get('queueManager');
+        
+        // Check if download path is set
+        if (!queueManager.getDownloadDir()) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Please set a download path first' 
+            });
+        }
         
         if (!urls || !Array.isArray(urls) || urls.length === 0) {
             return res.status(400).json({ 
@@ -94,7 +70,6 @@ router.post('/add', async (req, res) => {
             });
         }
 
-        const queueManager = req.app.get('queueManager');
         const downloadService = new DownloadService(apiKey, libraryId);
         
         const addedJobs = [];

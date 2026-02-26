@@ -48,17 +48,9 @@
                     </h2>
                     
                     <div class="form-group">
-                        <label for="downloadPath">Download Location</label>
-                        <div class="path-input-group">
-                            <input type="text" id="downloadPath" placeholder="Select download folder..." readonly>
-                            <button type="button" id="browsePathBtn" class="btn btn-secondary btn-small">
-                                <svg class="icon" viewBox="0 0 24 24" fill="none">
-                                    <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor"/>
-                                </svg>
-                                Browse
-                            </button>
-                        </div>
-                        <small class="form-hint">Videos will be saved to this folder</small>
+                        <label for="downloadPath">Download Location (Full Path) <span class="required">*</span></label>
+                        <input type="text" id="downloadPath" placeholder="Enter full path e.g. /home/user/videos or C:\Users\name\Videos" required>
+                        <small class="form-hint">Enter the full folder path where videos will be saved. Folder will be created if it doesn't exist.</small>
                     </div>
 
                     <div class="form-group">

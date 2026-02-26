@@ -3,7 +3,6 @@ const socket = io();
 
 // DOM Elements
 const downloadPathInput = document.getElementById('downloadPath');
-const browsePathBtn = document.getElementById('browsePathBtn');
 const apiKeyInput = document.getElementById('apiKey');
 const libraryIdInput = document.getElementById('libraryId');
 const videoUrlsInput = document.getElementById('videoUrls');
@@ -22,97 +21,50 @@ const completedCount = document.getElementById('completedCount');
 // Track downloads that have been sent to browser
 const browserDownloadsTriggered = new Set();
 
-// Initialize download path on load
-async function initDownloadPath() {
-    // Check for saved path in localStorage
+// Load saved path from localStorage on startup
+function loadSavedPath() {
     const savedPath = localStorage.getItem('downloadPath');
-    
     if (savedPath) {
-        // Verify saved path is still valid
-        try {
-            const response = await fetch('/api/download/set-path', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ downloadPath: savedPath })
-            });
-            const data = await response.json();
-            if (data.success) {
-                downloadPathInput.value = savedPath;
-                return;
-            }
-        } catch (e) {
-            console.log('Saved path no longer valid');
-        }
-    }
-    
-    // Get default path
-    try {
-        const response = await fetch('/api/download/default-path');
-        const data = await response.json();
-        if (data.success) {
-            downloadPathInput.value = data.path;
-            localStorage.setItem('downloadPath', data.path);
-            // Set it on server
-            await fetch('/api/download/set-path', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ downloadPath: data.path })
-            });
-        }
-    } catch (e) {
-        console.error('Failed to get default path:', e);
+        downloadPathInput.value = savedPath;
     }
 }
 
-// Browse for folder
-async function browseFolder() {
+// Save path to localStorage when changed
+function savePath() {
+    const pathValue = downloadPathInput.value.trim();
+    if (pathValue) {
+        localStorage.setItem('downloadPath', pathValue);
+    }
+}
+
+// Validate and set path on server
+async function validatePath(pathValue) {
+    if (!pathValue || !pathValue.trim()) {
+        return { success: false, error: 'Please enter a download path' };
+    }
+    
     try {
-        browsePathBtn.disabled = true;
-        browsePathBtn.innerHTML = '<span class="loading-spinner"></span> Opening...';
-        
-        const response = await fetch('/api/download/browse-folder');
-        const data = await response.json();
-        
-        if (data.success && data.path) {
-            downloadPathInput.value = data.path;
-            localStorage.setItem('downloadPath', data.path);
-            
-            // Set on server
-            await fetch('/api/download/set-path', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ downloadPath: data.path })
-            });
-            
-            showToast('Download location updated', 'success');
-        } else if (data.cancelled) {
-            // User cancelled, do nothing
-        } else {
-            showToast('Failed to select folder', 'error');
-        }
+        const response = await fetch('/api/download/set-path', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ downloadPath: pathValue.trim() })
+        });
+        return await response.json();
     } catch (error) {
-        showToast('Error browsing folder: ' + error.message, 'error');
-    } finally {
-        browsePathBtn.disabled = false;
-        browsePathBtn.innerHTML = `
-            <svg class="icon" viewBox="0 0 24 24" fill="none">
-                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" fill="currentColor"/>
-            </svg>
-            Browse
-        `;
+        return { success: false, error: 'Failed to validate path: ' + error.message };
     }
 }
 
 // Initialize on page load
-initDownloadPath();
+loadSavedPath();
 
-// Event listeners for browse button
-browsePathBtn.addEventListener('click', browseFolder);
+// Save path when user types
+downloadPathInput.addEventListener('blur', savePath);
+downloadPathInput.addEventListener('change', savePath);
 
 // Socket.IO event handlers
 socket.on('connect', () => {
     console.log('Connected to server');
-    showToast('Connected to download server', 'info');
 });
 
 socket.on('disconnect', () => {
@@ -263,22 +215,49 @@ function createDownloadItem(job) {
 
 // Start downloads
 async function startDownload() {
+    const downloadPath = downloadPathInput.value.trim();
     const urls = getVideoUrls();
     const apiKey = apiKeyInput.value.trim();
     const libraryId = libraryIdInput.value.trim();
+
+    // Validate download path first
+    if (!downloadPath) {
+        showToast('Please enter a download path', 'error');
+        downloadPathInput.focus();
+        return;
+    }
 
     if (urls.length === 0) {
         showToast('Please enter at least one video URL', 'error');
         return;
     }
 
+    startDownloadBtn.disabled = true;
+    startDownloadBtn.innerHTML = '<span class="spinner"></span> Validating path...';
+
+    // Validate path on server
+    const pathResult = await validatePath(downloadPath);
+    if (!pathResult.success) {
+        showToast(pathResult.error, 'error');
+        startDownloadBtn.disabled = false;
+        startDownloadBtn.innerHTML = `
+            <svg class="icon" viewBox="0 0 24 24" fill="none">
+                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+            </svg>
+            Start Download
+        `;
+        return;
+    }
+    
+    // Save valid path
+    savePath();
+
+    startDownloadBtn.innerHTML = '<span class="spinner"></span> Starting...';
+
     // Warn if API key or Library ID missing for title fetching
     if (!apiKey || !libraryId) {
         showToast('Tip: Add API Key & Library ID to auto-fetch video titles', 'info');
     }
-
-    startDownloadBtn.disabled = true;
-    startDownloadBtn.innerHTML = '<span class="spinner"></span> Starting...';
 
     try {
         const response = await fetch('/api/download/add', {

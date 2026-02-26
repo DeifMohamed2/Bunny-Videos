@@ -10,43 +10,17 @@ class QueueManager {
         this.jobs = new Map();
         this.activeDownloads = 0;
         this.maxConcurrent = 3;
-        // Default to system Downloads folder
-        this.downloadDir = this.getDefaultDownloadsFolder();
-        // Ensure download directory exists on startup
-        this.ensureDownloadDir();
+        // No default - user must set download directory
+        this.downloadDir = null;
     }
 
-    // Get default downloads folder based on OS
-    getDefaultDownloadsFolder() {
-        const homeDir = os.homedir();
-        const platform = process.platform;
-        
-        // Default Downloads folder path
-        let downloadsPath = path.join(homeDir, 'Downloads');
-        
-        // Check if it exists, if not try alternatives
-        if (!fs.existsSync(downloadsPath)) {
-            // Try lowercase on Linux
-            const lowercasePath = path.join(homeDir, 'downloads');
-            if (fs.existsSync(lowercasePath)) {
-                downloadsPath = lowercasePath;
-            } else if (platform === 'win32') {
-                // Windows fallback to Desktop
-                const desktopPath = path.join(homeDir, 'Desktop');
-                if (fs.existsSync(desktopPath)) {
-                    downloadsPath = desktopPath;
-                }
-            } else {
-                // Fallback to home directory
-                downloadsPath = homeDir;
-            }
+    // Ensure download directory exists and is writable
+    ensureDownloadDir() {
+        if (!this.downloadDir) {
+            console.error('Download directory not set!');
+            return false;
         }
         
-        return downloadsPath;
-    }
-
-    // Ensure download directory exists
-    ensureDownloadDir() {
         try {
             if (!fs.existsSync(this.downloadDir)) {
                 fs.mkdirSync(this.downloadDir, { recursive: true });
